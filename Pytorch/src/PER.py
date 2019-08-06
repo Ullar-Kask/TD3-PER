@@ -46,6 +46,7 @@ class SumTree():
         return self.data_length
     
     def add(self, data, priority):
+        """
         if self.data_length < self.capacity:
             self.data_length += 1
             # Update data frame
@@ -60,6 +61,20 @@ class SumTree():
             self.data[data_pointer] = data
             tree_index = data_pointer + self.capacity - 1
         self.update (tree_index, priority)
+        """
+        
+        # Look at what index we want to put the experience
+        tree_index = self.data_pointer + self.capacity - 1
+        # Update data frame
+        self.data[self.data_pointer] = data
+        # Update the leaf
+        self.update (tree_index, priority)
+        # Add 1 to data_pointer
+        self.data_pointer += 1
+        if self.data_pointer >= self.capacity:
+            self.data_pointer = 0
+        if self.data_length < self.capacity:
+            self.data_length += 1
     
     def update(self, tree_index, priority):
         # change = new priority score - former priority score

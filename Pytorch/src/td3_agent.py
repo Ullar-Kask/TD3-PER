@@ -21,12 +21,12 @@ print('Device:', device)
 class Agent():
     """Interacts with and learns from the environment."""
     
-    BUFFER_SIZE = 2**17  # replay buffer size
-    BATCH_SIZE = 512        # minibatch size
+    BUFFER_SIZE = 2**17     # replay buffer size
+    BATCH_SIZE = 128        # minibatch size
     GAMMA = 0.99            # discount factor
     TAU = 1e-3              # for soft update of target parameters
-    LR_ACTOR = 5e-4         # learning rate of the actor network
-    LR_CRITIC = 5e-4        # learning rate of the critic network
+    LR_ACTOR = 1e-4         # learning rate of the actor network
+    LR_CRITIC = 1e-4        # learning rate of the critic network
     WEIGHT_DECAY = 0.0      # L2 weight decay
     
     def __init__(self, state_size, action_size, random_seed=11):
