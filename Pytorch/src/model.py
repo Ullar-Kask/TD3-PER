@@ -4,8 +4,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+##### HYPERPARAMETERS #####
+# Number of units in the first hidden layer
 fc1_units=400
+# Number of units in the second hidden layer
 fc2_units=300
+
 
 def hidden_init(layer):
     fan_in = layer.weight.data.size()[0]
@@ -15,18 +19,14 @@ def hidden_init(layer):
 class Actor(nn.Module):
     """Actor (Policy) Model."""
     
-    def __init__(self, state_size, action_size, seed):
+    def __init__(self, state_size, action_size):
         """Initialize parameters and build model.
         Params
         ======
             state_size (int): Dimension of each state
             action_size (int): Dimension of each action
-            seed (int): Random seed
-            fc1_units (int): Number of nodes in first hidden layer
-            fc2_units (int): Number of nodes in second hidden layer
         """
         super(Actor, self).__init__()
-        self.seed = torch.manual_seed(seed)
         #self.bn1 = nn.BatchNorm1d(state_size)
         self.fc1 = nn.Linear(state_size, fc1_units)
         self.bn2 = nn.BatchNorm1d(fc1_units)
@@ -37,6 +37,10 @@ class Actor(nn.Module):
     def reset_parameters(self):
         self.fc1.weight.data.uniform_(*hidden_init(self.fc1))
         self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
+        #nn.init.xavier_uniform_(self.fc1.weight, gain=nn.init.calculate_gain('relu'))
+        #nn.init.xavier_uniform_(self.fc2.weight, gain=nn.init.calculate_gain('relu'))
+        #nn.init.kaiming_uniform_(self.fc1.weight, mode='fan_in', nonlinearity='relu')
+        #nn.init.kaiming_uniform_(self.fc2.weight, mode='fan_in', nonlinearity='relu')
         self.fc3.weight.data.uniform_(-3e-3, 3e-3)
     
     def forward(self, x):
@@ -50,18 +54,14 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     """Critic (Value) Model."""
     
-    def __init__(self, state_size, action_size, seed):
+    def __init__(self, state_size, action_size):
         """Initialize parameters and build model.
         Params
         ======
             state_size (int): Dimension of each state
             action_size (int): Dimension of each action
-            seed (int): Random seed
-            fc1_units (int): Number of nodes in the first hidden layer
-            fc2_units (int): Number of nodes in the second hidden layer
         """
         super(Critic, self).__init__()
-        self.seed = torch.manual_seed(seed)
         #self.bn1 = nn.BatchNorm1d(state_size)
         self.fc1 = nn.Linear(state_size, fc1_units)
         self.bn2 = nn.BatchNorm1d(fc1_units)
@@ -72,6 +72,10 @@ class Critic(nn.Module):
     def reset_parameters(self):
         self.fc1.weight.data.uniform_(*hidden_init(self.fc1))
         self.fc2.weight.data.uniform_(*hidden_init(self.fc2))
+        #nn.init.xavier_uniform_(self.fc1.weight, gain=nn.init.calculate_gain('relu'))
+        #nn.init.xavier_uniform_(self.fc2.weight, gain=nn.init.calculate_gain('relu'))
+        #nn.init.kaiming_uniform_(self.fc1.weight, mode='fan_in', nonlinearity='relu')
+        #nn.init.kaiming_uniform_(self.fc2.weight, mode='fan_in', nonlinearity='relu')
         self.fc3.weight.data.uniform_(-3e-3, 3e-3)
     
     def forward(self, x, action):

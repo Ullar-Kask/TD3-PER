@@ -30,7 +30,7 @@ class SumTree():
         # Parent nodes = capacity - 1
         # Leaf nodes = capacity
         self.tree = np.zeros(2 * capacity - 1)
-
+        
         """ tree:
             0
            / \
@@ -46,23 +46,6 @@ class SumTree():
         return self.data_length
     
     def add(self, data, priority):
-        """
-        if self.data_length < self.capacity:
-            self.data_length += 1
-            # Update data frame
-            self.data[self.data_pointer] = data
-            tree_index = self.data_pointer + self.capacity - 1
-            # Increment the value of data_pointer
-            self.data_pointer += 1
-        else:
-            # We are overwriting old data, find the leaf node with min priority to overwrite
-            data_pointer = np.argmin(self.tree[-self.capacity:])
-            # Update data frame
-            self.data[data_pointer] = data
-            tree_index = data_pointer + self.capacity - 1
-        self.update (tree_index, priority)
-        """
-        
         # Look at what index we want to put the experience
         tree_index = self.data_pointer + self.capacity - 1
         # Update data frame
@@ -131,11 +114,10 @@ class SumTree():
                 else:
                     v -= self.tree[left_child_index]
                     parent_index = right_child_index
-            
+        
         data_index = leaf_index - self.capacity + 1
         
         return leaf_index, self.tree[leaf_index], self.data[data_index]
-    
     
     @property
     def total_priority(self):
@@ -147,10 +129,10 @@ class PER():  # stored as ( s, a, r, s_new, done ) in SumTree
     This PER code is modified version of the code from:
     https://github.com/jaara/AI-blog/blob/master/Seaquest-DDQN-PER.py
     """
-    epsilon = 0.001  # small amount to avoid zero priority
-    alpha = 0.6  # [0..1] convert the importance of TD error to priority
-    beta = 0.4  # importance-sampling, from initial value increasing to 1
-    beta_increment_per_sampling = 1e-4  # annealing the bias
+    epsilon = 0.01  # small amount to avoid zero priority
+    alpha = 0.6  # [0..1] convert the importance of TD error to priority, often 0.6
+    beta = 0.4  # importance-sampling, from initial value increasing to 1, often 0.4
+    beta_increment_per_sampling = 1e-4  # annealing the bias, often 1e-3
     absolute_error_upper = 1.   # clipped abs error
     
     def __init__(self, capacity):
@@ -161,6 +143,9 @@ class PER():  # stored as ( s, a, r, s_new, done ) in SumTree
     
     def __len__(self):
         return len(self.tree)
+    
+    def is_full(self):
+        return len(self.tree) >= self.tree.capacity
     
     def add(self, sample, error = None):
         if error is None:

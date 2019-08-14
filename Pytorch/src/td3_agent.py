@@ -10,6 +10,30 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
+##### HYPERPARAMETERS #####
+# Replay buffer size
+BUFFER_SIZE = 2**20
+# Minibatch size
+BATCH_SIZE = 1024
+# Discount factor
+GAMMA = 0.99
+# Target parameters soft update factor
+TAU = 4e-3
+# Learning rate of the actor network, often 1e-4
+LR_ACTOR = 5e-4
+# Learning rate of the critic network, often 1e-3
+LR_CRITIC = 5e-4
+# L2 weight decay
+WEIGHT_DECAY = 0.0
+# How many times networks are updated in one go
+LEARN_BATCH = 10
+# The actor is updated after every so many times the critic is updated (Delayed Policy Updates)
+UPDATE_ACTOR_EVERY = 2
+# Std of Gaussian noise added to action policy (Target Policy Smoothing Regularization)
+POLICY_NOISE = 0.2
+# Clip boundaries of the noise added to action policy
+POLICY_NOISE_CLIP = 0.5
+
 
 actor_weights_file = 'weights_actor.pt'
 critic1_weights_file = 'weights_critic1.pt'
@@ -21,15 +45,7 @@ print('Device:', device)
 class Agent():
     """Interacts with and learns from the environment."""
     
-    BUFFER_SIZE = 2**17     # replay buffer size
-    BATCH_SIZE = 128        # minibatch size
-    GAMMA = 0.99            # discount factor
-    TAU = 1e-3              # for soft update of target parameters
-    LR_ACTOR = 1e-4         # learning rate of the actor network
-    LR_CRITIC = 1e-4        # learning rate of the critic network
-    WEIGHT_DECAY = 0.0      # L2 weight decay
-    
-    def __init__(self, state_size, action_size, random_seed=11):
+    def __init__(self, state_size, action_size):
         """Initialize an Agent object.
         
         Params
@@ -40,130 +56,131 @@ class Agent():
         """
         self.state_size = state_size
         self.action_size = action_size
-        self.seed = random.seed(random_seed)
         
         # Actor Network (w/ Target Network)
-        self.actor_local = Actor(state_size, action_size, random_seed).to(device)
-        self.actor_target = Actor(state_size, action_size, random_seed).to(device)
-        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=self.LR_ACTOR)
+        self.actor_local = Actor(state_size, action_size).to(device)
+        self.actor_target = Actor(state_size, action_size).to(device)
+        self.actor_optimizer = optim.Adam(self.actor_local.parameters(), lr=LR_ACTOR)
         
         # Critic Network (w/ Target Network)
-        self.critic1_local = Critic(state_size, action_size, random_seed).to(device)
-        self.critic1_target = Critic(state_size, action_size, random_seed).to(device)
-        self.critic1_optimizer = optim.Adam(self.critic1_local.parameters(), lr=self.LR_CRITIC, weight_decay=self.WEIGHT_DECAY)
+        self.critic1_local = Critic(state_size, action_size).to(device)
+        self.critic1_target = Critic(state_size, action_size).to(device)
+        self.critic1_optimizer = optim.Adam(self.critic1_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
         
-        self.critic2_local = Critic(state_size, action_size, random_seed).to(device)
-        self.critic2_target = Critic(state_size, action_size, random_seed).to(device)
-        self.critic2_optimizer = optim.Adam(self.critic2_local.parameters(), lr=self.LR_CRITIC, weight_decay=self.WEIGHT_DECAY)
+        self.critic2_local = Critic(state_size, action_size).to(device)
+        self.critic2_target = Critic(state_size, action_size).to(device)
+        self.critic2_optimizer = optim.Adam(self.critic2_local.parameters(), lr=LR_CRITIC, weight_decay=WEIGHT_DECAY)
         
         # Noise process
-        self.noise = OUNoise(action_size, random_seed)
+        self.noise = OUNoise(action_size)
         
         # Replay memory
-        self.memory = PER(self.BUFFER_SIZE)
+        self.memory = PER(BUFFER_SIZE)
     
     def step(self, state, action, reward, next_state, done):
-        """Save experience in replay memory, and use random sample from buffer to learn."""
-        # Save experience / reward
-        self.memory.add((state, action, reward, next_state, done))
+        """Save experience in replay memory."""
+        # Set reward as initial priority, see:
+        #   https://jaromiru.com/2016/11/07/lets-make-a-dqn-double-learning-and-prioritized-experience-replay/
+        self.memory.add((state, action, reward, next_state, done), reward)
     
-    def act(self, state, add_noise=True):
+    def act(self, state):
         """Returns actions for given state as per current policy."""
         state = torch.from_numpy(state).float().to(device)
-        #state = torch.unsqueeze(torch.from_numpy(state).float(), 0).detach().to(device)
         self.actor_local.eval()
         with torch.no_grad():
             action = self.actor_local(state).cpu().data.numpy()
-            #action = torch.squeeze(self.actor_local(state).cpu()).data.numpy()
         self.actor_local.train()
-        if add_noise:
-            action += self.noise.sample()
-        return np.clip(action, -1, 1)
+        action += self.noise.sample()
+        return np.clip(action, -1., 1.)
     
     def reset(self):
         self.noise.reset()
     
     def mse(self, expected, targets, is_weights):
+        """Custom loss function that takes into account the importance-sampling weights."""
         td_error = expected - targets
-        return (is_weights * td_error).pow(2).mean()
+        weighted_squared_error = is_weights * td_error * td_error
+        return torch.sum(weighted_squared_error) / torch.numel(weighted_squared_error)
     
-    def learn(self, learn_batch=10, update_actor_every=2, policy_noise=0.2, policy_noise_clip=0.5):
+    def learn(self):
         """Update policy and value parameters using given batch of experience tuples.
         Q_targets = r + γ * critic_target(next_state, actor_target(next_state))
         where:
             actor_target(state) -> action
             critic_target(state, action) -> Q-value
         """
-        if len(self.memory) >= self.BATCH_SIZE:
-            for i in range(1, learn_batch + 1):
-                idxs, experiences, is_weights = self.memory.sample(self.BATCH_SIZE)
-                
-                states = torch.from_numpy(np.vstack([e[0] for e in experiences if e is not None])).float().to(device)
-                actions = torch.from_numpy(np.vstack([e[1] for e in experiences if e is not None])).float().to(device)
-                rewards = torch.from_numpy(np.vstack([e[2] for e in experiences if e is not None])).float().to(device)
-                next_states = torch.from_numpy(np.vstack([e[3] for e in experiences if e is not None])).float().to(device)
-                dones = torch.from_numpy(np.vstack([e[4] for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
-                
-                is_weights =  torch.from_numpy(is_weights).float().to(device)
-                
-                # ---------------------------- update critic ---------------------------- #
-                # Target Policy Smoothing: add a small amount of clipped random noises to the selected action
-                if policy_noise > 0.0:
-                    noise = torch.empty_like(actions).data.normal_(0, policy_noise).to(device)
-                    noise = noise.clamp(-policy_noise_clip, policy_noise_clip)
-                    # Get predicted next-state actions and Q values from target models
-                    actions_next = (self.actor_target(next_states) + noise).clamp (-1., 1.)
-                else:
-                    # Get predicted next-state actions and Q values from target models
-                    actions_next = self.actor_target(next_states)
-                Q_targets_next = torch.min(\
-                    self.critic1_target(next_states, actions_next), \
-                    self.critic2_target(next_states, actions_next)).detach()
-                # Compute Q targets for current states (y_i)
-                Q_targets = rewards + (self.GAMMA * Q_targets_next * (1 - dones))
-                
-                # Compute critic1 loss
-                Q_expected = self.critic1_local(states, actions)
-                #critic1_loss = F.mse_loss(Q_expected, Q_targets)
-                errors1 = np.abs((Q_expected - Q_targets).detach().cpu().numpy())
-                critic1_loss = self.mse(Q_expected, Q_targets, is_weights)
+        for i in range(1, LEARN_BATCH+1):
+            idxs, experiences, is_weights = self.memory.sample(BATCH_SIZE)
+            
+            states = torch.from_numpy(np.vstack([e[0] for e in experiences if e is not None])).float().to(device)
+            actions = torch.from_numpy(np.vstack([e[1] for e in experiences if e is not None])).float().to(device)
+            rewards = torch.from_numpy(np.vstack([e[2] for e in experiences if e is not None])).float().to(device)
+            next_states = torch.from_numpy(np.vstack([e[3] for e in experiences if e is not None])).float().to(device)
+            dones = torch.from_numpy(np.vstack([e[4] for e in experiences if e is not None]).astype(np.uint8)).float().to(device)
+            
+            is_weights =  torch.from_numpy(is_weights).float().to(device)
+            
+            # ---------------------------- update critic ---------------------------- #
+            # Target Policy Smoothing Regularization: add a small amount of clipped random noises to the selected action
+            if POLICY_NOISE > 0.0:
+                noise = torch.empty_like(actions).data.normal_(0, POLICY_NOISE).to(device)
+                noise = noise.clamp(-POLICY_NOISE_CLIP, POLICY_NOISE_CLIP)
+                # Get predicted next-state actions and Q values from target models
+                actions_next = (self.actor_target(next_states) + noise).clamp (-1., 1.)
+            else:
+                # Get predicted next-state actions and Q values from target models
+                actions_next = self.actor_target(next_states)
+            
+            # Error Mitigation
+            Q_targets_next = torch.min(\
+                self.critic1_target(next_states, actions_next), \
+                self.critic2_target(next_states, actions_next)).detach()
+            
+            # Compute Q targets for current states (y_i)
+            Q_targets = rewards + (GAMMA * Q_targets_next * (1 - dones))
+            
+            # Compute critic1 loss
+            Q_expected = self.critic1_local(states, actions)
+            errors1 = np.abs((Q_expected - Q_targets).detach().cpu().numpy())
+            critic1_loss = self.mse(Q_expected, Q_targets, is_weights)
+            # Minimize the loss
+            self.critic1_optimizer.zero_grad()
+            critic1_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic1_local.parameters(), 1)
+            self.critic1_optimizer.step()
+            
+            # Update priorities in the replay buffer            
+            self.memory.batch_update(idxs, errors1)
+            
+            # Compute critic2 loss
+            Q_expected = self.critic2_local(states, actions)
+            critic2_loss = self.mse(Q_expected, Q_targets, is_weights)
+            # Minimize the loss
+            self.critic2_optimizer.zero_grad()
+            critic2_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic2_local.parameters(), 1)
+            self.critic2_optimizer.step()
+            
+            # Delayed Policy Updates
+            if i % UPDATE_ACTOR_EVERY == 0:
+                # ---------------------------- update actor ---------------------------- #
+                # Compute actor loss
+                actions_pred = self.actor_local(states)
+                actor_loss = -self.critic1_local(states, actions_pred).mean()
                 # Minimize the loss
-                self.critic1_optimizer.zero_grad()
-                critic1_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.critic1_local.parameters(), 1)
-                self.critic1_optimizer.step()
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor_optimizer.step()
                 
-                # Compute critic2 loss
-                Q_expected = self.critic2_local(states, actions)
-                #critic2_loss = F.mse_loss(Q_expected, Q_targets)
-                critic2_loss = self.mse(Q_expected, Q_targets, is_weights)
-                # Minimize the loss
-                self.critic2_optimizer.zero_grad()
-                critic2_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.critic2_local.parameters(), 1)
-                self.critic2_optimizer.step()
-                
-                self.memory.batch_update(idxs, errors1)
-                
-                if i % update_actor_every == 0:
-                    # ---------------------------- update actor ---------------------------- #
-                    # Compute actor loss
-                    actions_pred = self.actor_local(states)
-                    actor_loss = -self.critic1_local(states, actions_pred).mean()
-                    # Minimize the loss
-                    self.actor_optimizer.zero_grad()
-                    actor_loss.backward()
-                    self.actor_optimizer.step()
-                    
-                    # ----------------------- update target networks ----------------------- #
-                    self.soft_update(self.critic1_local, self.critic1_target, self.TAU)
-                    self.soft_update(self.critic2_local, self.critic2_target, self.TAU)
-                    self.soft_update(self.actor_local, self.actor_target, self.TAU)                     
+                # ----------------------- update target networks ----------------------- #
+                self.soft_update(self.critic1_local, self.critic1_target, TAU)
+                self.soft_update(self.critic2_local, self.critic2_target, TAU)
+                self.soft_update(self.actor_local, self.actor_target, TAU)                     
     
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.
         θ_target = τ*θ_local + (1 - τ)*θ_target
-
+        
         Params
         ======
             local_model: PyTorch model (weights will be copied from)
@@ -186,12 +203,11 @@ class Agent():
 class OUNoise:
     """Ornstein-Uhlenbeck process."""
     
-    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2):
+    def __init__(self, size, mu=0., theta=0.15, sigma=0.2):
         """Initialize parameters and noise process."""
         self.mu = mu * np.ones(size)
         self.theta = theta
         self.sigma = sigma
-        self.seed = random.seed(seed)
         self.reset()
     
     def reset(self):
@@ -204,4 +220,3 @@ class OUNoise:
         dx = self.theta * (self.mu - x) + self.sigma * np.array([np.random.randn() for i in range(len(x))])
         self.state = x + dx
         return self.state
-

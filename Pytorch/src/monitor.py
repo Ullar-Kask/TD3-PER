@@ -1,31 +1,56 @@
 from collections import deque
 import numpy as np
 
-def train(env, agent, num_episodes=500, max_t=1000, learn_step=20):
+from td3_agent import Agent
+
+##### HYPERPARAMETERS #####
+# Number of episodes of agent-environment interactions
+NUM_EPISODES = 500
+# Number of timesteps per episode
+MAX_STEPS = 1000
+# Number of timesteps between invoking learning on the agent
+LEARN_EVERY = 20
+
+
+def train(env):
     """ Monitor agent's performance.
     
     Params
     ======
     - env: instance of the environment
-    - agent: instance of class Agent
-    - num_episodes: number of episodes of agent-environment interaction
-    - max_t: maximum number of timesteps per episode
-    - learn_step: number of timesteps between invoking learning on agent
-    - learn_batch: how many times to learn in a go
     
     Returns
     =======
     - scores: list containing received rewards
     """
+    
     # get the default brain
     brain_name = env.brain_names[0]
     brain = env.brains[brain_name]
     
     env_info = env.reset(train_mode=True)[brain_name]
-    agent.reset()
+    
+    # number of agents
+    num_agents = len(env_info.agents)
+    print('Number of agents:', num_agents)
+    
+    # number of actions
+    action_size = brain.vector_action_space_size
+    print('Number of actions:', action_size)
+    
+    # examine the state space 
     states = env_info.vector_observations
-    while len(agent.memory) < agent.BUFFER_SIZE:
-        actions = agent.act(states)
+    state_size = states.shape[1]
+    print('There are {} agents. Each observes a state with length: {}'.format(states.shape[0], state_size))
+    
+    agent = Agent(state_size, action_size)
+    
+    states = env_info.vector_observations
+    
+    # Pre-fill the replay buffer
+    while not agent.memory.is_full():
+        actions = np.random.randn(num_agents, action_size)
+        actions = np.clip(actions, -1, 1)
         env_info = env.step(actions)[brain_name]
         next_states = env_info.vector_observations
         rewards = env_info.rewards
@@ -40,10 +65,9 @@ def train(env, agent, num_episodes=500, max_t=1000, learn_step=20):
     scores_window = deque(maxlen=100)
     
     # for each episode
-    for i_episode in range(1, num_episodes+1):
+    for i_episode in range(1, NUM_EPISODES+1):
         # begin the episode
         env_info = env.reset(train_mode=True)[brain_name]
-        num_agents = len(env_info.agents)
         agent.reset()
         
         # get the current state (for each agent)
@@ -52,7 +76,7 @@ def train(env, agent, num_episodes=500, max_t=1000, learn_step=20):
         # initialize the score (for each agent)
         scores = np.zeros(num_agents)
         
-        for t in range(1, max_t+1):
+        for t in range(1, MAX_STEPS+1):
             # agent selects an action
             actions = agent.act(states)
             
@@ -78,7 +102,7 @@ def train(env, agent, num_episodes=500, max_t=1000, learn_step=20):
             # update the state (s <- s') to next time step
             states = next_states
             
-            if t%learn_step == 0:
+            if t%LEARN_EVERY == 0:
                 agent.learn()
             
             if np.any(dones):
@@ -92,13 +116,13 @@ def train(env, agent, num_episodes=500, max_t=1000, learn_step=20):
         
         # monitor progress
         if i_episode % 10 == 0:
-            print("\rEpisode {:d}/{:d} || Average score {:.2f}".format(i_episode, num_episodes, mean_score))
+            print("\rEpisode {:d}/{:d} || Average score {:.2f}".format(i_episode, NUM_EPISODES, mean_score))
         
         # check if task is solved
         if i_episode >= 100 and mean_score >= 30.0:
             print('\nEnvironment solved in {:d} episodes. Average score: {:.2f}'.format(i_episode, mean_score))
             agent.save_weights()
             break
-    if i_episode == num_episodes: 
+    if i_episode == NUM_EPISODES: 
         print("\nAgent stopped. Final score {:.2f}\n".format(mean_score))
     return episode_scores
