@@ -29,7 +29,7 @@ WEIGHT_DECAY = 0.0
 LEARN_BATCH = 10
 # The actor is updated after every so many times the critic is updated (Delayed Policy Updates)
 UPDATE_ACTOR_EVERY = 2
-# Std of Gaussian noise added to action policy (Target Policy Smoothing Regularization)
+# Std dev of Gaussian noise added to action policy (Target Policy Smoothing Regularization)
 POLICY_NOISE = 0.2
 # Clip boundaries of the noise added to action policy
 POLICY_NOISE_CLIP = 0.5
